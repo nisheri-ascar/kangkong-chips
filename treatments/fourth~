@@ -6,20 +6,22 @@ module Leaf
 length = 2   # in some units (= cm for example)
 dl = 0.1
 scaling = 5   # to dilate/contract the leaf
+midrib_separation = 13
 
 phi = 180      # Phyllotactic angle
 h = 1     # height of an internode
 
 
-Axiom: F[-(20)FF-(10)A(1)F][+(20)FFA(2)]FFFF
+Axiom: F!(0.05)F[-(20)FF-(10)A(1)][+(20)FFA(2)]FFFFA(3)
 
 derivation length: 1
 production:
 
 A(n):
-  produce [^(40)Leaf(scaling)] 
+  produce [^(20)Leaf(scaling)] 
+ 
 interpretation:
-Leaf(x) --> ;(2)_(0.05)F(0.1)[+Sweep(nerve,section,length,dl,x,width)][-Sweep(nerve,section,length,dl,x,width)]
+Leaf(x) --> ;(2)_(0.05)F(0.1)[+(midrib_separation)Sweep(nerve,section,length,dl,x,width)][-(midrib_separation)Sweep(nerve,section,length,dl,x,width)]
 
 A(n) --> ;(2) @O(0.2)
 
@@ -39,10 +41,6 @@ def __initialiseContext__(context):
 	context.turtle.setMaterial(2,Color_2)
 	context.animation_timestep = 1.839
 	import openalea.plantgl.all as pgl
-	nerve = pgl.NurbsCurve2D(	
-	    ctrlPointList = pgl.Point3Array([(-0.50828, -0.314632, 1),(-0.223915, -0.034721, 1),(-0.0496825, -0.00169189, 1),(0.187994, -0.0291973, 1),(0.467244, -0.216243, 1)]) , 
-	    )
-	nerve.name = "nerve"
 	section = pgl.NurbsCurve2D(	
 	    ctrlPointList = pgl.Point3Array([(-0.5, 0, 1),(-0.195355, -0.24554, 1),(0.203326, -0.162142, 1),(0.5, 0, 1)]) , 
 	    )
@@ -52,11 +50,15 @@ def __initialiseContext__(context):
 	    ctrlPointList = pgl.Point3Array([(0, -0.00416746, 1),(0.341523, 0.0983928, 1),(0.659499, 0.0348646, 1),(1, 0.00418017, 1)]) , 
 	    )
 	width.name = "width"
-	panel_0 = ({'name': 'Panel 1', 'active': True, 'visible': True},[('Curve2D',nerve),('Curve2D',section),('Function',width)])
+	nerve = pgl.NurbsCurve2D(	
+	    ctrlPointList = pgl.Point3Array([(-0.5, 0, 1),(-0.223915, 0.114315, 1),(0.121756, 0.0370409, 1),(0.467244, -0.216243, 1)]) , 
+	    )
+	nerve.name = "nerve"
+	panel_0 = ({'name': 'Panel 1', 'active': True, 'visible': True},[('Curve2D',section),('Function',width),('Curve2D',nerve)])
 	parameterset = [panel_0,]
 	context["__functions__"] = [('width',width),]
-	context["__curves__"] = [('nerve',nerve),('section',section),]
+	context["__curves__"] = [('section',section),('nerve',nerve),]
 	context["__parameterset__"] = parameterset
-	context["nerve"] = nerve
 	context["section"] = section
 	context["width"] = pgl.QuantisedFunction(width)
+	context["nerve"] = nerve
