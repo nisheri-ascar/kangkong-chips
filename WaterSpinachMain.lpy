@@ -1,0 +1,321 @@
+import random
+
+try:
+  from openalea.lpy.parameterse_t import *
+except:
+  class ParameterSet:
+    def __init__(self, **kwd):
+      self.__dict__.update(kwd)
+
+# Resource and Demand Pool
+ResourcePool = 100
+
+# Visual
+max_branches = 3
+
+# Timing
+time = 0
+dt = 1
+max_time = 90  # 30 days for water spinach
+
+# Leaf
+length = 5   # in some units (= cm for example)
+dl = 0.01
+scaling = 3   # to dilate/contract the leaf
+midrib_separation = 10
+
+# Speed
+
+Demand, Allocation, Organogenesis = range(1,4)
+groupname = ['Demand', 'Allocation', 'Organogenesis']
+
+
+MaxLeafQ = 10.
+MaxFlowerQ = 10.
+MaxInternodeQ = 10.
+MaxBranchQ = 8.
+
+# demand function
+dQc = 1.
+dQe = 0.3
+
+def ApexDemand(d) : 
+      d.growthdemand = 0
+      d.maintainance = 0     
+
+def InternodeDemand(d) : 
+    if d.Q < MaxInternodeQ:
+      d.growthdemand = dQc
+      d.maintainance = dQe * (d.Q / MaxInternodeQ)
+    else: 
+      d.growthdemand = 0
+      d.maintainance = dQe 
+
+def BranchDemand(d) : 
+    if d.Q < MaxBranchQ:
+      d.growthdemand = dQc
+      d.maintainance = dQe * (d.Q / MaxBranchQ)
+    else: 
+      d.growthdemand = 0
+      d.maintainance = dQe 
+
+def LeafDemand(d) : 
+    if d.Q < MaxLeafQ:
+      d.growthdemand = dQc
+      d.maintainance = dQe * (d.Q / MaxLeafQ)
+    else: 
+      d.growthdemand = 0
+      d.maintainance = dQe 
+
+def FlowerDemand(d) : 
+    if d.Q < MaxFlowerQ:
+      d.growthdemand = dQc
+      d.maintainance = dQe * (d.Q / MaxFlowerQ)
+    else: 
+      d.growthdemand = 0
+      d.maintainance = dQe 
+
+# resource function
+def ApexResource(d): return 0
+def InternodeResource(d): return 0
+def FlowerResource(d): return 0
+def BranchResource(d): return 0
+
+Rmax = 2
+def LeafResource(d): 
+    return Rmax * (d.Q / MaxLeafQ)
+
+# allocation function
+class GroupData:
+   def __init__(self,**kwd):
+       self.allocation = 0
+       self.sinkcoef = 1
+       self.demand = 0
+       self.__dict__.update(kwd)
+
+LeafGroupData = GroupData(sinkcoef=2)
+ApexGroupData = GroupData()
+FlowerGroupData = GroupData()
+InternodeGroupData = GroupData()
+BranchGroupData = GroupData(sinkcoef=1.5)
+OrganGroups = [LeafGroupData, ApexGroupData, FlowerGroupData, InternodeGroupData, BranchGroupData]
+
+def splitlist(l,cond):
+    ltrue,lfalse = [],[]
+    for v in l: 
+      if cond(v) : ltrue.append(v)
+      else : lfalse.append(v)
+    return ltrue,lfalse
+
+def updateAllocation():
+   global OrganGroups, ResourcePool
+   TotalDemand = sum([g.demand for g in OrganGroups])
+   if TotalDemand == 0:
+     for g in OrganGroups:
+         g.allocation = 0
+     return
+   
+   if TotalDemand <= ResourcePool:
+     for g in OrganGroups:
+         g.allocation = g.demand
+     ResourcePool -= TotalDemand
+     return
+   
+   consideredgroups = OrganGroups
+   totalresource = ResourcePool
+   
+   while True:
+     TotalBiasDemand = sum([g.sinkcoef*g.demand for g in consideredgroups])
+     for g in consideredgroups:
+         di = g.sinkcoef * g.demand / TotalBiasDemand
+         g.allocation = totalresource * di
+     
+     overallocated, consideredgroups = splitlist(consideredgroups, lambda g : g.allocation > g.demand)
+     
+     if len(overallocated) > 0:
+       for g in overallocated: 
+           g.allocation = g.demand
+           totalresource -= g.demand
+     else:
+        break
+   
+   ResourcePool = 0
+
+def updateOrganAllocation(data, groupdata):
+   if groupdata.demand > 0:
+     if data.growthdemand > 0 and data.maintainance < dQe :
+       data.Q += ((data.growthdemand+data.maintainance) * (groupdata.allocation / groupdata.demand)) - data.maintainance
+
+def StartEach():
+  if getGroup() == 0: 
+    useGroup(Demand)
+  global time, ResourcePool
+  time += dt
+  if getGroup() == Demand:
+    for g in OrganGroups:
+       g.demand = 0
+    ResourcePool += 5
+
+def EndEach():
+    print (time, groupname[getGroup()-1], ResourcePool)
+    if getGroup() == Demand:
+      
+      print ([g.demand for g in OrganGroups])
+      print (ResourcePool)
+      
+      updateAllocation()
+      
+      useGroup(Allocation)
+      
+    elif getGroup() == Allocation:
+      
+      useGroup(Organogenesis)
+    
+    else:
+      useGroup(Demand)
+
+
+module Seed, Pool
+module Apex, BranchApex
+module Internode, Leaf, Flower, Branch
+
+Axiom: ,(2) Internode(ParameterSet(Q=0,order=0)) Apex(ParameterSet(Q=0,order=0)) Pool
+
+derivation length: max_time / dt
+production:
+
+
+
+group 1 : # Demand and Resource Computation
+
+Apex(data):
+  global ApexGroupData, ResourcePool
+  ApexDemand(data)
+  ApexGroupData.demand += data.growthdemand + data.maintainance
+  ResourcePool += ApexResource(data)
+  produce Apex(data)
+
+BranchApex(data):
+  global ApexGroupData, ResourcePool
+  ApexDemand(data)
+  ApexGroupData.demand += data.growthdemand + data.maintainance
+  ResourcePool += ApexResource(data)
+  produce BranchApex(data)
+
+Internode(data):
+  global InternodeGroupData, ResourcePool
+  InternodeDemand(data)
+  InternodeGroupData.demand += data.growthdemand + data.maintainance
+  ResourcePool += InternodeResource(data)
+  produce Internode(data)
+
+Branch(data):
+  global BranchGroupData, ResourcePool
+  BranchDemand(data)
+  BranchGroupData.demand += data.growthdemand + data.maintainance
+  ResourcePool += BranchResource(data)
+  produce Branch(data)
+
+Leaf(data):
+  global LeafGroupData, ResourcePool
+  LeafDemand(data)
+  LeafGroupData.demand += data.growthdemand + data.maintainance
+  ResourcePool += LeafResource(data)
+  produce Leaf(data)
+
+Flower(data):
+  global FlowerGroupData, ResourcePool
+  FlowerDemand(data)
+  FlowerGroupData.demand += data.growthdemand + data.maintainance
+  ResourcePool += FlowerResource(data)
+  produce Flower(data)
+
+group 2: # Allocation and organ growth
+
+Apex(data):
+  updateOrganAllocation(data,ApexGroupData)
+
+BranchApex(data):
+  updateOrganAllocation(data,ApexGroupData)
+
+Leaf(data):
+  updateOrganAllocation(data,LeafGroupData)
+
+Internode(data):
+  updateOrganAllocation(data,InternodeGroupData)
+
+Branch(data):
+  updateOrganAllocation(data,BranchGroupData)
+
+Flower(data):
+  updateOrganAllocation(data,FlowerGroupData)
+
+group 3: # Organogenesis
+
+# Main stem: only create branches if order is 0 or 1 (max 2 levels)
+# Main stem: only create branches if order is 0 or 1 (max 2 levels)
+Internode(idata) < Apex(data):
+  if idata.Q >= MaxInternodeQ and data.order < 10:
+     import random
+     angle1 = random.uniform(0, 360)
+     angle2 = random.uniform(0, 360)
+     nproduce /(angle1) [ &(45) Branch(ParameterSet(Q=0)) BranchApex(ParameterSet(Q=0)) ] 
+     nproduce /(angle2) [ &(45) Branch(ParameterSet(Q=0)) BranchApex(ParameterSet(Q=0)) ] 
+     produce Internode(ParameterSet(Q=0,order=data.order+1)) Apex(ParameterSet(Q=0,order=data.order+1))
+
+# Main stem continues without branches after order >= 2
+Internode(idata) < Apex(data):
+  if idata.Q >= MaxInternodeQ and data.order >= 2:
+     produce Internode(ParameterSet(Q=0,order=data.order+1)) Apex(ParameterSet(Q=0,order=data.order+1))
+
+# Lateral branches: produce ONE leaf then stop growing
+Branch(bdata) < BranchApex(data):
+  if bdata.Q >= MaxBranchQ:
+     produce Leaf(ParameterSet(Q=0))
+
+group 0:
+interpretation:
+
+
+Internode(data) --> F(data.Q)
+
+Apex(data) --> [,(2) @O(0.5) ]
+
+BranchApex(data) --> [,(3) @O(0.3) ]
+
+Branch(data) --> F(data.Q * 0.7)
+
+Leaf(data) --> [ ,(2) &(45)  ~l(data.Q) ]
+#Leaf(data) --> ;(2)_(0.05)F(0.01)[+(midrib_separation)Sweep(nerve,section,length,dl,x,width_left)][/-(midrib_separation)Sweep(nerve,section,length,dl,x,width_right)]
+
+
+Pool :
+  global ResourcePool
+  produce [@M(0,-10,-10) Label('T:'+str(time)+' R:'+str(ResourcePool))]
+endlsystem
+
+###### INITIALISATION ######
+
+__lpy_code_version__ = 1.1
+
+def __initialiseContext__(context):
+	import openalea.plantgl.all as pgl
+	Color_1 = pgl.Material("Color_1" , ambient = (111,126,33) , diffuse = 1.42857 , )
+	Color_1.name = "Color_1"
+	context.turtle.setMaterial(1,Color_1)
+	Color_2 = pgl.Material("Color_2" , ambient = (66,92,5) , diffuse = 1.95652 , shininess = 0.26 , )
+	Color_2.name = "Color_2"
+	context.turtle.setMaterial(2,Color_2)
+	Color_3 = pgl.Material("Color_3" , ambient = (60,60,15) , diffuse = 3 , )
+	Color_3.name = "Color_3"
+	context.turtle.setMaterial(3,Color_3)
+	Color_4 = pgl.Material("Color_4" , ambient = (0,0,60) , diffuse = 3 , )
+	Color_4.name = "Color_4"
+	context.turtle.setMaterial(4,Color_4)
+	Color_5 = pgl.Material("Color_5" , ambient = (60,0,60) , diffuse = 3 , )
+	Color_5.name = "Color_5"
+	context.turtle.setMaterial(5,Color_5)
+	scalars = [('Initialize_Variables', 'Category'), ('init_height', 'Float', 0.0, 0.0, 99.99, 2), ('init_biomass', 'Float', 1.0, 0.0, 99.99, 2), ('init_leafarea', 'Float', 1.0, 0.0, 99.99, 2), ('Final_Variables', 'Category'), ('final_height', 'Float', 0.0, 0.0, 99.99, 2), ('final_biomass', 'Float', 1.0, 0.0, 99.99, 2), ('final_leafarea', 'Float', 1.0, 0.0, 99.99, 2), ('soil_init', 'Category'), ('init_carbon', 'Float', 1.0, 0.0, 99.99, 2), ('init_calcium', 'Float', 1.0, 0.0, 99.99, 2), ('kjedahl_nitrogen', 'Float', 1.0, 0.0, 99.99, 2), ('phosphorus', 'Float', 1.0, 0.0, 99.99, 2), ('sodium', 'Float', 1.0, 0.0, 99.99, 2), ('calcium', 'Float', 1.0, 0.0, 99.99, 2), ('magnesium', 'Float', 1.0, 0.0, 99.99, 2), ('manganese', 'Float', 1.0, 0.0, 99.99, 2), ('zinc', 'Float', 1.0, 0.0, 99.99, 2), ('copper', 'Float', 1.0, 0.0, 99.99, 2), ('chromium', 'Float', 1.0, 0.0, 99.99, 2), ('nickel', 'Float', 1.0, 0.0, 99.99, 2), ('lead', 'Float', 1.0, 0.0, 99.99, 2), ('cadmium', 'Float', 1.0, 0.0, 99.99, 2)]
+	context["__scalars__"] = scalars
+	for s in scalars:
+		if not s[1] == "Category" : context[s[0]] = s[2]
